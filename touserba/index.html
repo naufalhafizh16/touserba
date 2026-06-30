@@ -10,6 +10,8 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <!-- Supabase JS SDK -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
   <style>
     body { font-family: "Poppins", sans-serif; background-color: #e5e7eb; }
     .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -54,7 +56,7 @@
 <!-- TOAST -->
 <div id="toast" class="toast"></div>
 
-<div class="w-full max-w-md h-[100dvh] md:h-[90vh] md:rounded-3xl bg-gray-50 relative overflow-hidden shadow-2xl flex flex-col border border-gray-300">
+<div class="w-full md:w-screen h-[100dvh] bg-gray-50 relative overflow-hidden flex flex-col md:flex-row border-0 md:border-gray-300">
 
   <!-- LOADING OVERLAY -->
   <div id="app-loading" class="loading-overlay">
@@ -64,7 +66,7 @@
 
   <!-- HEADER -->
   <header id="main-header" class="bg-primary text-white p-4 flex justify-between items-center hidden z-40 absolute top-0 w-full shadow-md">
-    <button onclick="toggleMenu()" class="text-xl p-2"><i class="fas fa-bars"></i></button>
+    <button onclick="toggleMenu()" class="text-xl p-2 md:hidden"><i class="fas fa-bars"></i></button>
     <div class="flex items-center gap-2">
       <div class="realtime-dot" title="Realtime Connected"></div>
       <span class="text-xs text-gray-300 font-medium">LIVE</span>
@@ -76,7 +78,7 @@
   </header>
 
   <!-- SIDEBAR -->
-  <div id="sidebar" class="absolute inset-y-0 left-0 w-3/4 bg-white shadow-2xl transform -translate-x-full transition-transform duration-300 z-50 hidden flex-col">
+  <div id="sidebar" class="absolute md:relative inset-y-0 left-0 w-3/4 md:w-64 bg-white shadow-2xl md:shadow-none md:border-r border-gray-200 transform -translate-x-full md:translate-x-0 transition-transform duration-300 z-50 hidden md:flex flex-col">
     <div class="p-6 overflow-y-auto no-scrollbar h-full">
       <h2 class="text-2xl font-bold text-primary mb-6">Menu</h2>
       <ul class="space-y-2 text-gray-700" id="menu-list">
@@ -158,7 +160,7 @@
     <!-- VIEW: DASHBOARD -->
     <div id="view-dashboard" class="view-section hidden absolute inset-0 pt-20 bg-gray-50 flex flex-col overflow-y-auto px-4 pb-10">
       <h2 class="text-2xl font-bold text-primary mb-4">Dashboard</h2>
-      <div class="grid grid-cols-2 gap-4 mb-6">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex flex-col justify-center">
           <div class="text-gray-400 text-xs font-semibold mb-1 uppercase tracking-wide">Pendapatan Hari Ini</div>
           <div id="dash-rev" class="text-orange-brand font-bold text-xl">Rp 0</div>
@@ -179,49 +181,73 @@
     </div>
 
     <!-- VIEW: KASIR -->
-    <div id="view-kasir" class="view-section hidden absolute inset-0 pt-16 bg-gray-50 flex flex-col pb-0">
-      <div class="p-4 bg-white z-10 shadow-sm relative">
-        <i class="fas fa-search absolute left-8 top-7 text-gray-400"></i>
-        <input id="search-input" type="text" placeholder="Cari barang (Misal: button)" class="w-full bg-gray-100 rounded-xl pl-10 pr-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary text-sm" onkeydown="handleSearch(event)"/>
+    <div id="view-kasir" class="view-section hidden absolute inset-0 pt-16 bg-gray-50 flex flex-col md:flex-row pb-0">
+      
+      <!-- BAGIAN KIRI: Cari, Tab Kategori, & Grid Produk -->
+      <div class="flex-1 flex flex-col overflow-hidden relative">
+        <!-- Search -->
+        <div class="p-4 bg-white z-10 shadow-sm relative">
+          <i class="fas fa-search absolute left-8 top-7 text-gray-400"></i>
+          <input id="search-input" type="text" placeholder="Cari barang (Misal: button)" class="w-full bg-gray-100 rounded-xl pl-10 pr-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary text-sm" onkeydown="handleSearch(event)"/>
+        </div>
+        
+        <!-- Tabs -->
+        <div class="flex overflow-x-auto no-scrollbar bg-white border-b border-gray-200 px-2 z-10" id="category-tabs">
+          <button onclick="filterCategory('sticker', this)" class="px-4 py-3 text-gray-500 font-medium whitespace-nowrap">Sticker</button>
+          <button onclick="filterCategory('keychain', this)" class="px-4 py-3 text-primary font-bold border-b-2 border-primary whitespace-nowrap">Keychain</button>
+          <button onclick="filterCategory('totebag', this)" class="px-4 py-3 text-gray-500 font-medium whitespace-nowrap">Totebag</button>
+          <button onclick="filterCategory('artprint', this)" class="px-4 py-3 text-gray-500 font-medium whitespace-nowrap">Artprint</button>
+          <button onclick="filterCategory('pin', this)" class="px-4 py-3 text-gray-500 font-medium whitespace-nowrap">Pin</button>
+        </div>
+        
+        <!-- Product Grid -->
+        <div class="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 overflow-y-auto no-scrollbar flex-1 pb-28 md:pb-4" id="product-grid"></div>
       </div>
-      <div class="flex overflow-x-auto no-scrollbar bg-white border-b border-gray-200 px-2 z-10" id="category-tabs">
-        <button onclick="filterCategory('sticker', this)" class="px-4 py-3 text-gray-500 font-medium whitespace-nowrap">Sticker</button>
-        <button onclick="filterCategory('keychain', this)" class="px-4 py-3 text-primary font-bold border-b-2 border-primary whitespace-nowrap">Keychain</button>
-        <button onclick="filterCategory('totebag', this)" class="px-4 py-3 text-gray-500 font-medium whitespace-nowrap">Totebag</button>
-        <button onclick="filterCategory('artprint', this)" class="px-4 py-3 text-gray-500 font-medium whitespace-nowrap">Artprint</button>
-        <button onclick="filterCategory('pin', this)" class="px-4 py-3 text-gray-500 font-medium whitespace-nowrap">Pin</button>
-      </div>
-      <div class="p-4 grid grid-cols-2 gap-4 overflow-y-auto no-scrollbar flex-1 pb-28" id="product-grid"></div>
 
-      <!-- Cart drawer -->
-      <div id="cart-details-overlay" class="absolute inset-0 bg-black bg-opacity-40 z-20 hidden" onclick="toggleCartDetails()"></div>
-      <div id="cart-details-drawer" class="absolute bottom-0 left-0 w-full bg-white rounded-t-3xl shadow-[0_-15px_25px_rgba(0,0,0,0.15)] z-20 transform translate-y-full transition-transform duration-300 flex flex-col max-h-[70%] pb-[80px]">
-        <div class="p-4 border-b border-gray-100 flex justify-between items-center cursor-pointer" onclick="toggleCartDetails()">
+      <!-- BAGIAN KANAN: Keranjang Belanja -->
+      <!-- Cart Details Overlay (Hanya aktif di Mobile) -->
+      <div id="cart-details-overlay" class="absolute inset-0 bg-black bg-opacity-40 z-20 hidden md:hidden" onclick="toggleCartDetails()"></div>
+      
+      <!-- Cart Drawer / Sidebar Desktop -->
+      <!-- Menggunakan md:relative dan md:translate-y-0 agar selalu tampil di desktop -->
+      <div id="cart-details-drawer" class="absolute md:relative bottom-0 right-0 w-full md:w-[350px] lg:w-[400px] bg-white rounded-t-3xl md:rounded-none shadow-[0_-15px_25px_rgba(0,0,0,0.15)] md:shadow-[-5px_0_15px_rgba(0,0,0,0.05)] z-20 md:z-10 transform translate-y-full md:translate-y-0 transition-transform duration-300 flex flex-col max-h-[70%] md:max-h-full h-full pb-[80px] md:pb-[140px] border-gray-200 md:border-l">
+        
+        <div class="p-4 border-b border-gray-100 flex justify-between items-center cursor-pointer md:cursor-default" onclick="toggleCartDetails()">
           <h3 class="font-bold text-primary">Detail Pesanan</h3>
-          <i class="fas fa-times text-gray-400"></i>
+          <!-- Ikon silang (X) hanya ditampilkan di versi Mobile -->
+          <i class="fas fa-times text-gray-400 md:hidden"></i>
         </div>
-        <div id="cart-details-list" class="overflow-y-auto p-4 space-y-4"></div>
+        
+        <div id="cart-details-list" class="overflow-y-auto p-4 space-y-4 flex-1"></div>
       </div>
 
-      <div id="bottom-cart" class="absolute bottom-0 w-full bg-gray-200 p-4 border-t border-gray-300 flex justify-between items-center shadow-[0_-5px_15px_rgba(0,0,0,0.1)] z-30 transform translate-y-full transition-transform duration-300 ease-in-out">
-        <div>
-          <div class="flex items-center space-x-2 text-primary font-bold text-sm cursor-pointer mb-1" onclick="toggleCartDetails()">
-            <span>Details</span><i id="cart-chevron" class="fas fa-chevron-up transition-transform duration-300"></i>
-          </div>
-          <div class="flex items-center">
-            <div class="bg-yellow-500 text-white rounded-lg w-8 h-8 flex justify-center items-center mr-2 relative">
-              <i class="fas fa-shopping-basket"></i>
-              <span id="cart-badge" class="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full hidden">0</span>
+      <!-- Bottom Cart Summary -->
+      <!-- Mengganti arah flex menjadi kolom (md:flex-col) pada Desktop -->
+      <div id="bottom-cart" class="absolute bottom-0 md:right-0 w-full md:w-[350px] lg:w-[400px] bg-gray-200 md:bg-white p-4 border-t border-gray-300 md:border-gray-100 shadow-[0_-5px_15px_rgba(0,0,0,0.1)] md:shadow-none z-30 transform translate-y-full md:translate-y-0 transition-transform duration-300 ease-in-out border-gray-200 md:border-l">
+        
+        <div class="flex md:flex-col justify-between items-center md:items-stretch md:gap-4">
+          <div>
+            <!-- Tombol "Details" hanya ditampilkan di versi Mobile -->
+            <div class="flex items-center space-x-2 text-primary font-bold text-sm cursor-pointer mb-1 md:hidden" onclick="toggleCartDetails()">
+              <span>Details</span><i id="cart-chevron" class="fas fa-chevron-up transition-transform duration-300"></i>
             </div>
-            <div>
-              <p class="text-[10px] text-gray-600">Total Pembelian</p>
-              <p id="cart-total-price" class="font-bold text-base leading-none text-primary">Rp 0</p>
+            
+            <div class="flex items-center md:justify-between">
+              <div class="bg-yellow-500 text-white rounded-lg w-8 h-8 flex justify-center items-center mr-2 relative">
+                <i class="fas fa-shopping-basket"></i>
+                <span id="cart-badge" class="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full hidden">0</span>
+              </div>
+              <div class="md:text-right">
+                <p class="text-[10px] text-gray-600 md:text-xs md:font-medium">Total Pembelian</p>
+                <p id="cart-total-price" class="font-bold text-base md:text-2xl leading-none text-primary">Rp 0</p>
+              </div>
             </div>
           </div>
+          
+          <button onclick="togglePaymentModal()" class="bg-primary text-white font-bold rounded-xl px-6 py-2.5 md:py-3.5 shadow flex items-center justify-center space-x-2 active:bg-blue-900 transition">
+            <i class="fas fa-money-bill-wave"></i><span>Bayar</span>
+          </button>
         </div>
-        <button onclick="togglePaymentModal()" class="bg-primary text-white font-bold rounded-xl px-6 py-2.5 shadow flex items-center space-x-2 active:bg-blue-900 transition">
-          <i class="fas fa-money-bill-wave"></i><span>Bayar</span>
-        </button>
       </div>
     </div>
 
@@ -1051,21 +1077,94 @@ async function loadLaporanSummary() {
   }
 }
 
-function downloadPDF(btnElement) {
-  const startDate = document.getElementById('laporan-start').value;
-  const endDate = document.getElementById('laporan-end').value;
-  if (!startDate || !endDate) { showToast('Pilih rentang tanggal terlebih dahulu!', 'error'); return; }
+async function downloadPDF(btnElement) {
+  const start = document.getElementById('laporan-start').value;
+  const end   = document.getElementById('laporan-end').value;
+  
+  if (!start || !end) { 
+    showToast('Pilih rentang tanggal terlebih dahulu!', 'error'); 
+    return; 
+  }
+  
   const orig = btnElement.innerHTML;
-  btnElement.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>Memproses...</span>';
+  btnElement.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>Menyusun PDF...</span>';
   btnElement.classList.add('opacity-70', 'cursor-wait');
-  setTimeout(() => {
-    btnElement.innerHTML = orig;
-    btnElement.classList.remove('opacity-70', 'cursor-wait');
-    const link = document.createElement('a');
-    link.href = 'Laporan_Keuangan_Simulasi_Touserba.pdf';
-    link.download = 'Laporan_Keuangan_Touserba.pdf';
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
-  }, 1500);
+
+  // 1. Ambil data asli dari Supabase sesuai rentang waktu
+  const { data, error } = await sb.from('transactions')
+    .select('order_number, total_amount, payment_method, created_at')
+    .gte('created_at', start + 'T00:00:00')
+    .lte('created_at', end + 'T23:59:59')
+    .order('created_at', { ascending: true });
+
+  btnElement.innerHTML = orig;
+  btnElement.classList.remove('opacity-70', 'cursor-wait');
+
+  if (error) { 
+    showToast('Gagal mengambil data: ' + error.message, 'error'); 
+    return; 
+  }
+
+  if (!data || data.length === 0) {
+    showToast('Tidak ada transaksi pada periode tersebut.', 'error');
+    return;
+  }
+
+  // 2. Inisialisasi jsPDF
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  // 3. Buat Header Dokumen
+  doc.setFontSize(18);
+  doc.setTextColor(31, 45, 90); // Warna Primary (#1f2d5a)
+  doc.text('Laporan Keuangan Touserba', 14, 20);
+
+  doc.setFontSize(11);
+  doc.setTextColor(100);
+  doc.text(`Periode: ${start} s/d ${end}`, 14, 28);
+
+  // 4. Siapkan Data Tabel & Hitung Grand Total
+  const tableColumn = ["Order No", "Tanggal", "Metode Pembayaran", "Total Pendapatan (Rp)"];
+  const tableRows = [];
+  let grandTotal = 0;
+
+  data.forEach(t => {
+    const date = new Date(t.created_at).toLocaleString('id-ID');
+    const total = t.total_amount;
+    grandTotal += total;
+
+    tableRows.push([
+      t.order_number,
+      date,
+      t.payment_method.toUpperCase(),
+      total.toLocaleString('id-ID')
+    ]);
+  });
+
+  // Tambahkan baris Grand Total di paling bawah
+  tableRows.push(['', '', 'GRAND TOTAL', grandTotal.toLocaleString('id-ID')]);
+
+  // 5. Render Tabel ke dalam PDF
+  doc.autoTable({
+    head: [tableColumn],
+    body: tableRows,
+    startY: 35,
+    theme: 'grid',
+    headStyles: { fillColor: [31, 45, 90] }, // Sesuaikan dengan warna tema aplikasi
+    styles: { fontSize: 9 },
+    didParseCell: function(data) {
+      // Format khusus (cetak tebal) untuk baris Grand Total
+      if (data.row.index === tableRows.length - 1) {
+        data.cell.styles.fontStyle = 'bold';
+        data.cell.styles.fillColor = [245, 245, 245];
+        data.cell.styles.textColor = [31, 45, 90];
+      }
+    }
+  });
+
+  // 6. Eksekusi Unduhan
+  doc.save(`Laporan_Keuangan_Touserba_${start}_sampai_${end}.pdf`);
+  showToast('Laporan PDF berhasil dicetak!', 'success');
 }
 
 async function exportExcel(btnElement) {
