@@ -1149,137 +1149,160 @@ async function downloadPDF(btnElement) {
   btnElement.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>Menyusun PDF...</span>';
   btnElement.classList.add('opacity-70', 'cursor-wait');
 
-  // 1. Ambil Data Header Transaksi
-  const { data: trxData, error: trxErr } = await sb.from('transactions')
-    .select('id, total_amount, payment_method, created_at')
-    .gte('created_at', start + 'T00:00:00')
-    .lte('created_at', end + 'T23:59:59')
-    .order('created_at', { ascending: true });
+  try {
+    // 1. Ambil Data Header Transaksi
+    const { data: trxData, error: trxErr } = await sb.from('transactions')
+      .select('id, total_amount, payment_method, created_at')
+      .gte('created_at', start + 'T00:00:00')
+      .lte('created_at', end + 'T23:59:59')
+      .order('created_at', { ascending: true });
 
-  if (trxErr || !trxData || trxData.length === 0) {
+    if (trxErr || !trxData || trxData.length === 0) {
+      showToast(trxErr ? trxErr.message : 'Tidak ada transaksi pada periode tersebut.', 'error');
+      return;
+    }
+
+    // 2. Ambil Rincian Barang
+    const trxIds = trxData.map(t => t.id);
+    const { data: itemsData, error: itemErr } = await sb.from('transaction_items')
+      .select('product_id, qty, subtotal')
+      .in('transaction_id', trxIds);
+
+    let hasItems = true;
+    if (itemErr) {
+      console.warn("Peringatan: Gagal mengambil detail barang dari Supabase.");
+      hasItems = false;
+    }
+
+    // 3. Analisis Data (Metrik & Kategori)
+    let grandTotal = 0;
+    let totalBarangTerjual = 0;
+    let methodCount = { cash: 0, qris: 0 };
+    let categorySales = {};
+
+    trxData.forEach(t => {
+      grandTotal += (t.total_amount || 0);
+      
+      // JARING PENGAMAN: Jika payment_method kosong, anggap '-'
+      const method = (t.payment_method || '-').toLowerCase(); 
+      if (method === 'cash' || method === 'qris') {
+        methodCount[method] += 1;
+      }
+    });
+
+    const cashCount = methodCount.cash;
+    const qrisCount = methodCount.qris;
+    let metodeTerbanyak = 'CASH & QRIS (Seimbang)';
+    if (cashCount > qrisCount) metodeTerbanyak = 'CASH';
+    else if (qrisCount > cashCount) metodeTerbanyak = 'QRIS';
+
+    // JARING PENGAMAN: Cek apakah item transaksi benar-benar ada
+    if (hasItems && itemsData && itemsData.length > 0) {
+      itemsData.forEach(item => {
+        totalBarangTerjual += (item.qty || 0);
+        const prod = products.find(p => p.id === item.product_id);
+        const kategori = prod && prod.category ? prod.category.toUpperCase() : 'LAINNYA';
+
+        if (!categorySales[kategori]) categorySales[kategori] = { qty: 0, rev: 0 };
+        categorySales[kategori].qty += (item.qty || 0);
+        categorySales[kategori].rev += (item.subtotal || 0);
+      });
+    }
+
+    // 4. Proses Cetak PDF
+    if (!window.jspdf) throw new Error("Library jsPDF tidak ditemukan. Pastikan koneksi internet stabil.");
+    
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    // Header Dokumen
+    doc.setFontSize(18);
+    doc.setTextColor(31, 45, 90);
+    doc.text('Laporan Kinerja Keuangan Touserba', 14, 20);
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Periode: ${start} s/d ${end}`, 14, 26);
+
+    // Bagian A: Ringkasan Eksekutif
+    doc.setFontSize(12);
+    doc.setTextColor(31, 45, 90);
+    doc.text('A. Ringkasan Eksekutif', 14, 38);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(50);
+    doc.text(`1. Total Pendapatan     : Rp ${grandTotal.toLocaleString('id-ID')}`, 14, 45);
+    doc.text(`2. Total Transaksi      : ${trxData.length} transaksi`, 14, 51);
+    doc.text(`3. Total Barang Terjual : ${totalBarangTerjual > 0 ? totalBarangTerjual + ' item' : '(Data belum direkam)'}`, 14, 57);
+    doc.text(`4. Metode Favorit       : ${metodeTerbanyak} (Cash: ${cashCount}, QRIS: ${qrisCount})`, 14, 63);
+
+    let finalY = 75;
+
+    // Bagian B: Tren Kategori (Hanya digambar jika ada datanya)
+    if (Object.keys(categorySales).length > 0) {
+      doc.setFontSize(12);
+      doc.setTextColor(31, 45, 90);
+      doc.text('B. Tren Penjualan per Kategori', 14, 75);
+
+      const catRows = Object.keys(categorySales).map(k => [
+        k, categorySales[k].qty.toString() + ' item', 'Rp ' + categorySales[k].rev.toLocaleString('id-ID')
+      ]);
+
+      doc.autoTable({
+        startY: 79,
+        head: [['Kategori', 'Total Barang Terjual', 'Pendapatan Kategori']],
+        body: catRows,
+        theme: 'grid',
+        headStyles: { fillColor: [255, 87, 34] }, 
+        styles: { fontSize: 9 },
+        margin: { left: 14, right: 14 }
+      });
+      finalY = doc.lastAutoTable.finalY + 12;
+    }
+
+    // Pindah halaman otomatis jika mentok
+    if (finalY > 250) { doc.addPage(); finalY = 20; } 
+
+    // Bagian C: Tabel Riwayat
+    doc.setFontSize(12);
+    doc.setTextColor(31, 45, 90);
+    doc.text(Object.keys(categorySales).length > 0 ? 'C. Rincian Transaksi' : 'B. Rincian Transaksi', 14, finalY);
+
+    const trxRows = trxData.map(t => [
+      t.id ? t.id.toString().substring(0, 8).toUpperCase() : '-',
+      new Date(t.created_at).toLocaleString('id-ID'),
+      t.payment_method ? t.payment_method.toUpperCase() : '-', // JARING PENGAMAN NULL
+      (t.total_amount || 0).toLocaleString('id-ID')
+    ]);
+    trxRows.push(['', 'GRAND TOTAL', '', grandTotal.toLocaleString('id-ID')]);
+
+    doc.autoTable({
+      startY: finalY + 4,
+      head: [['Order No', 'Waktu', 'Metode', 'Total (Rp)']],
+      body: trxRows,
+      theme: 'grid',
+      headStyles: { fillColor: [31, 45, 90] }, 
+      styles: { fontSize: 9 },
+      didParseCell: function(data) {
+        if (data.row.index === trxRows.length - 1) {
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.fillColor = [245, 245, 245];
+          data.cell.styles.textColor = [31, 45, 90];
+        }
+      }
+    });
+
+    doc.save(`Laporan_Touserba_${start}_sampai_${end}.pdf`);
+    showToast('Laporan PDF berhasil dicetak!', 'success');
+
+  } catch (error) {
+    // MENANGKAP ERROR: Jika terjadi error lagi, pesan peringatan merah akan muncul di layar!
+    console.error("Gagal cetak PDF:", error);
+    showToast('Terjadi kesalahan: ' + error.message, 'error');
+  } finally {
+    // Pastikan tombol selalu kembali normal walaupun terjadi error
     btnElement.innerHTML = orig;
     btnElement.classList.remove('opacity-70', 'cursor-wait');
-    showToast(trxErr ? trxErr.message : 'Tidak ada transaksi pada periode tersebut.', 'error');
-    return;
   }
-
-  // 2. Ambil Rincian Barang (transaction_items)
-  const trxIds = trxData.map(t => t.id);
-  // Mengubah select 'quantity' menjadi 'qty'
-  const { data: itemsData, error: itemErr } = await sb.from('transaction_items')
-    .select('product_id, qty, subtotal')
-    .in('transaction_id', trxIds);
-
-  btnElement.innerHTML = orig;
-  btnElement.classList.remove('opacity-70', 'cursor-wait');
-
-  if (itemErr) {
-    showToast('Gagal mengambil rincian barang: ' + itemErr.message, 'error');
-    return;
-  }
-
-  // 3. Analisis Data (Metrik & Kategori)
-  let grandTotal = 0;
-  let totalBarangTerjual = 0;
-  let methodCount = { cash: 0, qris: 0 };
-  let categorySales = {};
-
-  trxData.forEach(t => {
-    grandTotal += t.total_amount;
-    methodCount[t.payment_method] = (methodCount[t.payment_method] || 0) + 1;
-  });
-
-  const metodeTerbanyak = methodCount.cash > methodCount.qris ? 'CASH' : (methodCount.qris > methodCount.cash ? 'QRIS' : 'CASH & QRIS (Seimbang)');
-
-  // Hanya proses detail jika data items berhasil ditarik
-  if (hasItems && itemsData) {
-    itemsData.forEach(item => {
-      totalBarangTerjual += item.qty || 0; // Ubah ke item.qty
-      const prod = products.find(p => p.id === item.product_id);
-      const kategori = prod ? prod.category.toUpperCase() : 'LAINNYA';
-
-      if (!categorySales[kategori]) categorySales[kategori] = { qty: 0, rev: 0 };
-      categorySales[kategori].qty += item.qty || 0; // Ubah ke item.qty
-      categorySales[kategori].rev += item.subtotal || 0;
-    });
-  }
-  // 4. Proses Cetak PDF
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-
-  // Header Dokumen
-  doc.setFontSize(18);
-  doc.setTextColor(31, 45, 90);
-  doc.text('Laporan Kinerja Keuangan Touserba', 14, 20);
-  doc.setFontSize(10);
-  doc.setTextColor(100);
-  doc.text(`Periode: ${start} s/d ${end}`, 14, 26);
-
-  // Bagian A: Ringkasan Eksekutif
-  doc.setFontSize(12);
-  doc.setTextColor(31, 45, 90);
-  doc.text('A. Ringkasan Eksekutif', 14, 38);
-  
-  doc.setFontSize(10);
-  doc.setTextColor(50);
-  doc.text(`1. Total Pendapatan     : Rp ${grandTotal.toLocaleString('id-ID')}`, 14, 45);
-  doc.text(`2. Total Transaksi      : ${trxData.length} transaksi`, 14, 51);
-  doc.text(`3. Total Barang Terjual : ${totalBarangTerjual} item`, 14, 57);
-  doc.text(`4. Metode Favorit       : ${metodeTerbanyak} (Cash: ${methodCount.cash}, QRIS: ${methodCount.qris})`, 14, 63);
-
-  // Bagian B: Tren Kategori
-  doc.setFontSize(12);
-  doc.setTextColor(31, 45, 90);
-  doc.text('B. Tren Penjualan per Kategori', 14, 75);
-
-  const catRows = Object.keys(categorySales).map(k => [
-    k, categorySales[k].qty.toString() + ' item', 'Rp ' + categorySales[k].rev.toLocaleString('id-ID')
-  ]);
-
-  doc.autoTable({
-    startY: 79,
-    head: [['Kategori', 'Total Barang Terjual', 'Pendapatan Kategori']],
-    body: catRows,
-    theme: 'grid',
-    headStyles: { fillColor: [255, 87, 34] }, // Warna Orange Brand
-    styles: { fontSize: 9 },
-    margin: { left: 14, right: 14 }
-  });
-
-  // Bagian C: Tabel Riwayat
-  let finalY = doc.lastAutoTable.finalY + 12;
-  if (finalY > 250) { doc.addPage(); finalY = 20; } // Pindah halaman otomatis jika mentok
-
-  doc.setFontSize(12);
-  doc.setTextColor(31, 45, 90);
-  doc.text('C. Rincian Transaksi', 14, finalY);
-
-  const trxRows = trxData.map(t => [
-    t.id.toString().substring(0, 8).toUpperCase(),
-    new Date(t.created_at).toLocaleString('id-ID'),
-    t.payment_method.toUpperCase(),
-    t.total_amount.toLocaleString('id-ID')
-  ]);
-  trxRows.push(['', 'GRAND TOTAL', '', grandTotal.toLocaleString('id-ID')]);
-
-  doc.autoTable({
-    startY: finalY + 4,
-    head: [['Order No', 'Waktu', 'Metode', 'Total (Rp)']],
-    body: trxRows,
-    theme: 'grid',
-    headStyles: { fillColor: [31, 45, 90] }, // Warna Biru Primary
-    styles: { fontSize: 9 },
-    didParseCell: function(data) {
-      if (data.row.index === trxRows.length - 1) {
-        data.cell.styles.fontStyle = 'bold';
-        data.cell.styles.fillColor = [245, 245, 245];
-        data.cell.styles.textColor = [31, 45, 90];
-      }
-    }
-  });
-
-  doc.save(`Laporan_Touserba_${start}_sampai_${end}.pdf`);
-  showToast('Laporan Lengkap berhasil dicetak!', 'success');
 }
 
 async function exportExcel(btnElement) {
