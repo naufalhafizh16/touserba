@@ -67,18 +67,15 @@
   <!-- HEADER -->
   <header id="main-header" class="bg-primary text-white p-4 flex justify-between items-center hidden z-40 absolute top-0 w-full shadow-md">
     
-    <!-- Bagian Kiri: Tombol Menu & Judul Aplikasi -->
     <div class="flex items-center gap-2 md:gap-4">
-     <button onclick="toggleMenu()" class="text-xl p-2 hover:scale-110 transition"><i class="fas fa-bars"></i></button>
+      <button onclick="toggleMenu()" class="text-xl p-2 hover:scale-110 transition">
         <i class="fas fa-bars"></i>
       </button>
-      <!-- Teks akan disembunyikan di layar HP yang sangat kecil (hidden sm:block) agar tidak tumpang tindih -->
       <h1 class="font-bold text-sm md:text-base hidden sm:block tracking-wide">
         Touserba Integrated POS And Inventory System
       </h1>
     </div>
     
-    <!-- Bagian Kanan: Indikator Live & Ikon Profil -->
     <div class="flex items-center gap-4 md:gap-6">
       <div class="flex items-center gap-2 bg-white/10 px-3 py-1 rounded-full">
         <div class="realtime-dot" title="Realtime Connected"></div>
@@ -968,7 +965,8 @@ async function saveTransactionToSupabase() {
     const q = cart[p.id] || 0;
     if (q > 0) {
       total += p.price * q;
-      cartItems.push({ product_id: p.id, product_name: p.name, quantity: q, unit_price: p.price, subtotal: p.price * q });
+      // Menyesuaikan dengan kolom 'qty' dan 'harga_satuan' di Supabase
+      cartItems.push({ product_id: p.id, qty: q, harga_satuan: p.price, subtotal: p.price * q });
     }
   });
   lastTrxValue = total;
@@ -1167,8 +1165,9 @@ async function downloadPDF(btnElement) {
 
   // 2. Ambil Rincian Barang (transaction_items)
   const trxIds = trxData.map(t => t.id);
+  // Mengubah select 'quantity' menjadi 'qty'
   const { data: itemsData, error: itemErr } = await sb.from('transaction_items')
-    .select('product_id, quantity, subtotal')
+    .select('product_id, qty, subtotal')
     .in('transaction_id', trxIds);
 
   btnElement.innerHTML = orig;
@@ -1192,17 +1191,18 @@ async function downloadPDF(btnElement) {
 
   const metodeTerbanyak = methodCount.cash > methodCount.qris ? 'CASH' : (methodCount.qris > methodCount.cash ? 'QRIS' : 'CASH & QRIS (Seimbang)');
 
-  itemsData.forEach(item => {
-    totalBarangTerjual += item.quantity;
-    // Mencocokkan data barang dengan kategori dari database lokal kita
-    const prod = products.find(p => p.id === item.product_id);
-    const kategori = prod ? prod.category.toUpperCase() : 'LAINNYA';
+  // Hanya proses detail jika data items berhasil ditarik
+  if (hasItems && itemsData) {
+    itemsData.forEach(item => {
+      totalBarangTerjual += item.qty || 0; // Ubah ke item.qty
+      const prod = products.find(p => p.id === item.product_id);
+      const kategori = prod ? prod.category.toUpperCase() : 'LAINNYA';
 
-    if (!categorySales[kategori]) categorySales[kategori] = { qty: 0, rev: 0 };
-    categorySales[kategori].qty += item.quantity;
-    categorySales[kategori].rev += item.subtotal;
-  });
-
+      if (!categorySales[kategori]) categorySales[kategori] = { qty: 0, rev: 0 };
+      categorySales[kategori].qty += item.qty || 0; // Ubah ke item.qty
+      categorySales[kategori].rev += item.subtotal || 0;
+    });
+  }
   // 4. Proses Cetak PDF
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
