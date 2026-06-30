@@ -1216,11 +1216,27 @@ const viewsWithHeader = ['dashboard','kasir','biodata','merchandise','laporan','
 function navigate(target) {
   const sidebar = document.getElementById('sidebar');
   if (!sidebar.classList.contains('hidden')) toggleMenu();
-  views.forEach(viewId => { const el = document.getElementById(viewId); if (el) el.classList.add('hidden'); });
+  
+  views.forEach(viewId => { 
+    const el = document.getElementById(viewId); 
+    if (el) el.classList.add('hidden'); 
+  });
   document.getElementById('view-' + target).classList.remove('hidden');
+  
   const header = document.getElementById('main-header');
-  if (viewsWithHeader.includes(target)) header.classList.remove('hidden');
-  else header.classList.add('hidden');
+  
+  // LOGIKA BARU: Tampilkan/Sembunyikan Header dan Sidebar sesuai Halaman
+  if (viewsWithHeader.includes(target)) {
+    // Mode Dalam Aplikasi (Dashboard, Kasir, dll)
+    header.classList.remove('hidden');
+    header.classList.add('flex');
+    sidebar.style.display = ''; // Kembalikan menu samping agar tampil di desktop
+  } else {
+    // Mode Luar Aplikasi (Welcome, Login, Signup)
+    header.classList.add('hidden');
+    header.classList.remove('flex');
+    sidebar.style.display = 'none'; // Paksa menu samping bersembunyi sepenuhnya
+  }
 
   if (target === 'merchandise') renderMerch();
   if (target === 'kasir') { renderProducts('keychain', ''); calculateTotal(); }
